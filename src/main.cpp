@@ -1,4 +1,9 @@
 #include <Arduino.h>
+#include <Adafruit_GFX.h>    // Core graphics library
+#include <Adafruit_ST7789.h> // Hardware-specific library for ST7789
+#include <FS.h>
+#include <SPIFFS.h>
+#include <QRCode.h>
 
 #include <WiFi.h>
 #include <HTTPClient.h>
@@ -40,17 +45,19 @@ int on = false;
 
 int sensor = 1;
 
-const char *ssid = "SiPalingPaling";
-const char *password = "31415926";
 
-// Google script ID and required credentials
-String GOOGLE_SCRIPT_ID = "AKfycbyr48bsFpnYg2lPdlOwnD0SrerXouHf7-vivWSiGKyiz6M3GeN74LbnubV3T1QFKFG5wg"; // change Gscript ID
+void testlines(uint16_t color);
+void testdrawtext(char *text, uint16_t color);
+void testfastlines(uint16_t color1, uint16_t color2);
+void testdrawrects(uint16_t color);
+void testfillrects(uint16_t color1, uint16_t color2);
+void testfillcircles(uint8_t radius, uint16_t color);
+void testdrawcircles(uint8_t radius, uint16_t color);
+void testtriangles();
+void testroundrects();
+void tftPrintTest();
+void mediabuttons();
 
-// Stores frequency read by the photodiodes
-int red = 0;
-int green = 0;
-int blue = 0;
-int freq = 0;
 
 // put function declarations here:
 int getRed();
@@ -76,9 +83,10 @@ int lcdColumns = 16;
 int lcdRows = 2;
 LiquidCrystal_I2C lcd(0x27, lcdColumns, lcdRows);
 
-char units[5];
-unsigned long last_time = 0;
-unsigned long current_time = 0;
+  // Display a QR Code
+  QRCode qrcode;
+  uint8_t qrcodeData[qrcode_getBufferSize(3)]; // Use larger ECC level and size
+  qrcode_initText(&qrcode, qrcodeData, 3, ECC_MEDIUM, "https://www.example.com"); // Change this URL
 
 bool isCollectingData = false;
 
@@ -197,12 +205,11 @@ void loop()
   }
 }
 
-int getRed()
-{
-  digitalWrite(S2, LOW);
-  digitalWrite(S3, LOW);
-  freq = pulseIn(Out, LOW); /*Get the Red Color freq*/
-  return freq;
+void testdrawtext(char *text, uint16_t color) {
+  tft.setCursor(0, 0);
+  tft.setTextColor(color);
+  tft.setTextWrap(true);
+  tft.print(text);
 }
 
 int getGreen()
@@ -253,11 +260,10 @@ void sendHttpRequest(int red, int green, int blue)
     lcd.setCursor(0,1);
     lcd.print(value);
   }
-  else
-  {
-    Serial.print("HTTP Error: ");
-    Serial.println(httpResponseCode);
+  for (int16_t x = 0; x < tft.width(); x += 5) {
+    tft.drawFastVLine(x, 0, tft.height(), color2);
   }
+}
 
   http.end();
 }
