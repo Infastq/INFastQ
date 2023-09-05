@@ -8,7 +8,7 @@
 #include <TinyGPS++.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7789.h>
-//#include <Servo.h>
+#include <Servo.h>
 
 using namespace std;
 
@@ -38,8 +38,8 @@ int on = false;
 
 int sensor = 1;
 
-const char *ssid = "SiPalingPaling";
-const char *password = "31415926";
+const char *ssid = "realme 9 Pro 5G";
+const char *password = "z833cw4w";
 // const char *ssid = "Haleluya";
 // const char *password = "bismillah";
 
@@ -73,23 +73,28 @@ void testtriangles();
 void testroundrects();
 void tftPrintTest();
 void mediabuttons();
+void move(int pos1, int pos2);
 
 // set the LCD number of columns and rows
 int lcdColumns = 16;
 int lcdRows = 2;
 LiquidCrystal_I2C lcd(0x27, lcdColumns, lcdRows);
+Servo myServo;
 
 char units[5];
 unsigned long last_time = 0;
 unsigned long current_time = 0;
 
-bool isCollectingData = true;
-bool isGetGPS = false;
+bool isCollectingData = false;
+bool isGetGPS = true;
 // uint16_t pict[200];
 
 // StaticJsonDocument<200> jsonDocument;
 // StaticJsonDocument<288> jsonResponse;
 
+unsigned long startTime;
+
+int servoPos = 0;
 void setup()
 {
   Serial.begin(115200);
@@ -121,6 +126,9 @@ void setup()
 
   // //Begin serial communication Neo6mGPS
   neogps.begin(9600, SERIAL_8N1, RXD2, TXD2);
+
+  // setup servo
+  myServo.attach(13);
 
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
@@ -167,11 +175,17 @@ void setup()
   //   delay(50);
   // }
   // delay(5000); // Display for 5 seconds
+  startTime = millis();
 }
 
 String value = "";
 void loop()
 {
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    delay(500);
+    Serial.println("Connecting to WiFi...");
+  }
   if (isGetGPS){
     if (neogps.available()>0){
       if (gps.encode(neogps.read())){
@@ -180,8 +194,11 @@ void loop()
           // Serial.println(gps.location.lat(), 6);
           // Serial.print("Longitude: ");
           // Serial.println(gps.location.lng(), 6);
-          sendHTTPRequestGPS(gps.location.lat(), gps.location.lng());
-          delay(50);
+          unsigned long currentMillis = millis();
+          if (currentMillis - startTime >2000){
+            startTime = currentMillis;
+            sendHTTPRequestGPS(gps.location.lat(), gps.location.lng());
+          }
         }
       }
     }
@@ -227,10 +244,29 @@ void loop()
       http.end();
       Serial.println();
     } else{
-      sendHttpRequest(red, green, blue);
-      delay(1000);
+      int httpResp = sendHttpRequest(red, green, blue);
+      if (httpResp > 0){
+        move(0, 90);
+        delay(2000);
+        move(90, 0);
+      }
+      delay(500);
     }
     
+  }
+}
+
+void move(int pos1,int pos2){
+  if (pos2-pos1 >= 0){
+    for (int i = pos1; i <= pos2; i++){
+      myServo.write(i);
+      delay(15);
+    }
+  } else{
+    for (int i = pos1; i >= pos2; i--){
+      myServo.write(i);
+      delay(15);
+    }
   }
 }
 
@@ -260,20 +296,20 @@ int getBlue()
 
 void sendHTTPRequestGPS(double latitude, double longitude)
 {
-  HTTPClient http;
+  HTTPClient http1;
   String url = "https://infastq-api-production.up.railway.app/api/location/";
-  http.begin(url);
-  http.addHeader("Content-Type", "application/json");
+  http1.begin(url);
+  http1.addHeader("Content-Type", "application/json");
 
   String jsonString;
   DynamicJsonDocument jsonReq(50);
   jsonReq["latitude"] = latitude;
   jsonReq["longitude"] = longitude;
   serializeJson(jsonReq, jsonString);
-  int httpResponseCode = http.POST(jsonString);
+  int httpResponseCode = http1.POST(jsonString);
   if (httpResponseCode > 0)
   {
-    String response = http.getString();
+    String response = http1.getString();
     Serial.println("HTTP Response: " + response);
     // Parse the JSON response
     DynamicJsonDocument jsonResp(50);
@@ -282,10 +318,10 @@ void sendHTTPRequestGPS(double latitude, double longitude)
     // Extract the "data" value
     String latitude = jsonResp["latitude"];
     String longitude = jsonResp["longitude"];
-    Serial.print("Latitude: ");
-    Serial.println(latitude);
-    Serial.print("Longitude: ");
-    Serial.println(longitude);
+    // Serial.print("Latitude: ");
+    // Serial.println(latitude);
+    // Serial.print("Longitude: ");
+    // Serial.println(longitude);
     jsonResp.clear();
   }
   else
@@ -293,7 +329,7 @@ void sendHTTPRequestGPS(double latitude, double longitude)
     Serial.print("HTTP Error: ");
     Serial.println(httpResponseCode);
   }
-  http.end();
+  http1.end();
   jsonReq.clear();
 }
 
@@ -359,7 +395,7 @@ void sendHTTPRequestGPS(double latitude, double longitude)
 //   }
 // }
 
-void sendHttpRequest(int red, int green, int blue)
+int sendHttpRequest(int red, int green, int blue)
 {
   HTTPClient http;
   http.begin("https://infastq-api-production.up.railway.app/api/calculate/"); // Change this to your server URL
@@ -400,6 +436,7 @@ void sendHttpRequest(int red, int green, int blue)
 
   jsonDoc.clear();
   http.end();
+  return httpResponseCode;
 }
 
 // #include <Arduino.h>
