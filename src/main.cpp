@@ -6,12 +6,11 @@
 #include <ArduinoJson.h>
 #include <LiquidCrystal_I2C.h>
 #include <TinyGPS++.h>
-#include <string>
 #include <Adafruit_GFX.h>
-#include <FS.h>
-#include <SPIFFS.h>
 #include <Adafruit_ST7789.h>
-#include <qrcode.h>
+#include <ESP32Servo.h>
+#include <FS.h>
+#include "SPIFFS.h"
 
 using namespace std;
 
@@ -30,6 +29,7 @@ using namespace std;
 HardwareSerial neogps(1);
 Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);
 
+// setup the neo-gps
 TinyGPSPlus gps;
 
 float pi = 3.1415926;
@@ -40,8 +40,11 @@ int on = false;
 
 int sensor = 1;
 
-const char *ssid = "SiPalingPaling";
-const char *password = "31415926";
+const char *ssid = "realme 9 Pro 5G";
+const char *password = "z833cw4w";
+// const char *ssid = "Haleluya";
+// const char *password = "bismillah";
+
 
 // Google script ID and required credentials
 String GOOGLE_SCRIPT_ID = "AKfycbyr48bsFpnYg2lPdlOwnD0SrerXouHf7-vivWSiGKyiz6M3GeN74LbnubV3T1QFKFG5wg"; // change Gscript ID
@@ -56,7 +59,9 @@ int freq = 0;
 int getRed();
 int getGreen();
 int getBlue();
-void sendHttpRequest(int red, int green, int blue);
+int sendHttpRequest(int red, int green, int blue);
+uint16_t* sendRequestImage(bool hasPython);
+void sendHTTPRequestGPS(double latitude, double longitude);
 void visualisasi_GPS_lcd (void);
 void visualisasi_GPS_Serial (void);
 void testlines(uint16_t color);
@@ -70,20 +75,31 @@ void testtriangles();
 void testroundrects();
 void tftPrintTest();
 void mediabuttons();
+void move(int pos1, int pos2);
 
 // set the LCD number of columns and rows
 int lcdColumns = 16;
 int lcdRows = 2;
 LiquidCrystal_I2C lcd(0x27, lcdColumns, lcdRows);
+Servo myServo;
 
 char units[5];
 unsigned long last_time = 0;
 unsigned long current_time = 0;
 
 bool isCollectingData = false;
+bool isGetGPS = true;
+// uint16_t pict[200];
 
+// StaticJsonDocument<200> jsonDocument;
+// StaticJsonDocument<288> jsonResponse;
+
+unsigned long startTime;
+
+int servoPos = 0;
 void setup()
 {
+  Serial.begin(115200);
   pinMode(S0, OUTPUT);
   pinMode(S1, OUTPUT);
   pinMode(S2, OUTPUT);
@@ -96,18 +112,26 @@ void setup()
   digitalWrite(S0, HIGH);
   digitalWrite(S1, LOW);
 
-  Serial.begin(9600);
+  
+  Serial.println(String(ESP.getFreeHeap())+" Bytes");
   delay(10);
 
   Wire.begin();
 
+  // begin serial of gps
+  neogps.begin(9600);
+
   // initialize LCD
-  lcd.begin();
+  // lcd.begin();
+  lcd.init();
   // turn on LCD backlight
   lcd.backlight();
 
   // //Begin serial communication Neo6mGPS
-  // neogps.begin(9600, SERIAL_8N1, RXD2, TXD2);
+  neogps.begin(9600, SERIAL_8N1, RXD2, TXD2);
+
+  // setup servo
+  myServo.attach(13);
 
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
@@ -125,31 +149,64 @@ void setup()
   tft.setRotation(2);
 
   // Display a QR Code
-  QRCode qrcode;
-  uint8_t qrcodeData[qrcode_getBufferSize(3)]; // Use larger ECC level and size
-  qrcode_initText(&qrcode, qrcodeData, 3, ECC_MEDIUM, "https://www.example.com"); // Change this URL
+  // QRCode qrcode;
+  // uint8_t qrcodeData[qrcode_getBufferSize(3)]; // Use larger ECC level and size
+  // qrcode_initText(&qrcode, qrcodeData, 3, ECC_MEDIUM, "https://www.example.com"); // Change this URL
 
   tft.fillScreen(ST77XX_BLACK);
-  uint16_t pixelColor = ST77XX_WHITE;
-  uint8_t moduleSize = tft.width() / qrcode.size; // Calculate size of each QR code module
-  for (uint8_t y = 0; y < qrcode.size; y++) {
-    for (uint8_t x = 0; x < qrcode.size; x++) {
-      if (qrcode_getModule(&qrcode, x, y)) {
-        tft.fillRect(x * moduleSize, y * moduleSize, moduleSize, moduleSize, pixelColor);
-      }
-    }
-  }
 
-  delay(5000); // Display for 5 seconds
+  // int firstIndex = 0; int secondIndex = 288;
+  // while (firstIndex <= 57400){
+  //   Serial.println("First index = " + String(firstIndex) + ", Second Index = " + String(secondIndex));
+  //   uint16_t* python = sendRequestImage(true, firstIndex, secondIndex);
+  //   if (python == nullptr){
+  //     Serial.println("Request Error");
+  //     break;
+  //   }
+  //   for (int i = 0; i < secondIndex - firstIndex;i++){
+  //     uint16_t pixelColor = python[i];
+  //     Serial.println(pixelColor);
+  //     int currIdx = firstIndex + i;
+  //     int y = currIdx/240;
+  //     int x = currIdx%240;
+  //     tft.drawPixel(x, y, pixelColor);
+  //   }
+  //   firstIndex += 288;
+  //   secondIndex += 288;
+  //   delete[] python;
+  //   python = nullptr;
+  //   delay(50);
+  // }
+  // delay(5000); // Display for 5 seconds
+  startTime = millis();
 }
 
 String value = "";
 void loop()
 {
-  // while(ss.available()>0)
-  //   gps.encode(ss.read());
-  // visualisasi_GPS_lcd ();
-  // Visualisasi_GPS_Serial();
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    delay(500);
+    Serial.println("Connecting to WiFi...");
+  }
+  if (isGetGPS){
+    if (neogps.available()>0){
+      if (gps.encode(neogps.read())){
+        if (gps.location.isValid()){
+          // Serial.print("Latitude: ");
+          // Serial.println(gps.location.lat(), 6);
+          // Serial.print("Longitude: ");
+          // Serial.println(gps.location.lng(), 6);
+          unsigned long currentMillis = millis();
+          if (currentMillis - startTime >2000){
+            startTime = currentMillis;
+            sendHTTPRequestGPS(gps.location.lat(), gps.location.lng());
+          }
+        }
+      }
+    }
+  }
+  
 
   // put your main code here, to run repeatedly:
   sensor = digitalRead(IR);
@@ -190,10 +247,29 @@ void loop()
       http.end();
       Serial.println();
     } else{
-      sendHttpRequest(red, green, blue);
-      delay(10000);
+      int httpResp = sendHttpRequest(red, green, blue);
+      if (httpResp > 0){
+        move(0, 90);
+        delay(2000);
+        move(90, 0);
+      }
+      delay(500);
     }
     
+  }
+}
+
+void move(int pos1,int pos2){
+  if (pos2-pos1 >= 0){
+    for (int i = pos1; i <= pos2; i++){
+      myServo.write(i);
+      delay(3);
+    }
+  } else{
+    for (int i = pos1; i >= pos2; i--){
+      myServo.write(i);
+      delay(3);
+    }
   }
 }
 
@@ -221,14 +297,115 @@ int getBlue()
   return freq;
 }
 
-void sendHttpRequest(int red, int green, int blue)
+void sendHTTPRequestGPS(double latitude, double longitude)
+{
+  HTTPClient http1;
+  String url = "https://infastq-api-production.up.railway.app/api/location/";
+  http1.begin(url);
+  http1.addHeader("Content-Type", "application/json");
+
+  String jsonString;
+  DynamicJsonDocument jsonReq(50);
+  jsonReq["latitude"] = latitude;
+  jsonReq["longitude"] = longitude;
+  serializeJson(jsonReq, jsonString);
+  int httpResponseCode = http1.POST(jsonString);
+  if (httpResponseCode > 0)
+  {
+    String response = http1.getString();
+    Serial.println("HTTP Response: " + response);
+    // Parse the JSON response
+    DynamicJsonDocument jsonResp(50);
+    deserializeJson(jsonResp, response);
+
+    // Extract the "data" value
+    String latitude = jsonResp["latitude"];
+    String longitude = jsonResp["longitude"];
+    // Serial.print("Latitude: ");
+    // Serial.println(latitude);
+    // Serial.print("Longitude: ");
+    // Serial.println(longitude);
+    jsonResp.clear();
+  }
+  else
+  {
+    Serial.print("HTTP Error: ");
+    Serial.println(httpResponseCode);
+  }
+  http1.end();
+  jsonReq.clear();
+}
+
+// uint16_t* sendRequestImage(bool hasPython, int firstIndex, int lastIndex){
+//   HTTPClient http;
+//   String url = "https://infastq-api-production.up.railway.app/api/convert_to_rgb/" + String(firstIndex)+"-"+String(lastIndex);
+//   Serial.println("url = " + url);
+//   http.begin(url); // Change this to your server URL
+//   http.addHeader("Content-Type", "application/json");
+
+//   // DynamicJsonDocument jsonDoc(100); // Use a DynamicJsonDocument for flexibility
+//   if (hasPython){
+//     Serial.println("Using python.jpg");
+//     jsonDocument["python"] = 1;
+//   }
+
+//   // Serial.println("Checkpoint 1");
+//   String jsonString;
+//   serializeJson(jsonDocument, jsonString);
+//   // Serial.println("Checkpoint 2");
+
+//   Serial.println("JSON String = " + jsonString);
+
+//   int httpResponseCode = http.POST(jsonString);
+//   // Serial.println("Checkpoint 3");
+//   if (httpResponseCode > 0)
+//   {
+//     String response = http.getString();
+//     // Serial.println("Checkpoint 4");
+//     // Serial.println("HTTP Response: " + response);
+//     deserializeJson(jsonResponse, response);
+//     // Serial.println("Checkpoint 5");
+
+//     // Get the "data" array from the JSON response
+//     JsonArray dataArray = jsonResponse["data"].as<JsonArray>();
+//     // Serial.println("Checkpoint 6");
+
+//     // Create a dynamic uint16_t array to store the data
+//     const uint16_t size = lastIndex - firstIndex;
+//     uint16_t* arrayValue = new uint16_t[size];
+//     // Serial.println("Checkpoint 7");
+//     int i = 0;
+//     for (JsonVariant v: dataArray){
+//       arrayValue[i] = v.as<uint16_t>();
+//       i++;
+//     }
+//     // Parse the JSON elements and store them in the array
+//     // for (size_t i = 0; i < size; i++) {
+//     //   arrayValue[i] = dataArray[i].as<uint16_t>();
+//     // }
+    
+//     http.end();
+//     jsonDocument.clear();
+//     jsonResponse.clear();
+//     return arrayValue;
+//   }else {
+//     jsonDocument.clear();
+//     Serial.print("HTTP Error: ");
+//     Serial.println(httpResponseCode);
+//     http.end();
+//     Serial.println("Checkpoint 3.2");
+//     return nullptr;
+//   }
+// }
+
+int sendHttpRequest(int red, int green, int blue)
 {
   HTTPClient http;
   http.begin("https://infastq-api-production.up.railway.app/api/calculate/"); // Change this to your server URL
   http.addHeader("Content-Type", "application/json");
 
   // Create JSON payload
-  StaticJsonDocument<200> jsonDoc;
+  DynamicJsonDocument jsonDoc(200);
   jsonDoc["red"] = red;
   jsonDoc["green"] = green;
   jsonDoc["blue"] = blue;
@@ -252,6 +429,7 @@ void sendHttpRequest(int red, int green, int blue)
     Serial.println(value);
     lcd.setCursor(0,1);
     lcd.print(value);
+    jsonResp.clear();
   }
   else
   {
@@ -259,7 +437,9 @@ void sendHttpRequest(int red, int green, int blue)
     Serial.println(httpResponseCode);
   }
 
+  jsonDoc.clear();
   http.end();
+  return httpResponseCode;
 }
 
 // #include <Arduino.h>
