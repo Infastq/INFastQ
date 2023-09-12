@@ -8,12 +8,12 @@
 #include <TinyGPS++.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7789.h>
-//#include <Servo.h>
+#include <Servo.h>
 
 using namespace std;
 
-#define S0 33
-#define S1 32
+#define S0 32
+#define S1 33
 #define Out 27
 #define S2 26
 #define S3 25
@@ -38,8 +38,8 @@ int on = false;
 
 int sensor = 1;
 
-const char *ssid = "SiPalingPaling";
-const char *password = "31415926";
+const char *ssid = "realme 9 Pro 5G";
+const char *password = "z833cw4w";
 // const char *ssid = "Haleluya";
 // const char *password = "bismillah";
 
@@ -73,23 +73,29 @@ void testtriangles();
 void testroundrects();
 void tftPrintTest();
 void mediabuttons();
+void move(int pos1, int pos2);
 
 // set the LCD number of columns and rows
 int lcdColumns = 16;
 int lcdRows = 2;
 LiquidCrystal_I2C lcd(0x27, lcdColumns, lcdRows);
+Servo myServo;
 
 char units[5];
 unsigned long last_time = 0;
 unsigned long current_time = 0;
 
-bool isCollectingData = true;
-bool isGetGPS = false;
+bool isCollectingData = false;
+bool isGetGPS = true;
+
 // uint16_t pict[200];
 
 // StaticJsonDocument<200> jsonDocument;
 // StaticJsonDocument<288> jsonResponse;
 
+unsigned long startTime;
+
+int servoPos = 0;
 void setup()
 {
   Serial.begin(115200);
@@ -122,6 +128,9 @@ void setup()
   // //Begin serial communication Neo6mGPS
   neogps.begin(9600, SERIAL_8N1, RXD2, TXD2);
 
+  // setup servo
+  myServo.attach(13);
+
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
 
@@ -143,35 +152,17 @@ void setup()
   // qrcode_initText(&qrcode, qrcodeData, 3, ECC_MEDIUM, "https://www.example.com"); // Change this URL
 
   tft.fillScreen(ST77XX_BLACK);
-
-  // int firstIndex = 0; int secondIndex = 288;
-  // while (firstIndex <= 57400){
-  //   Serial.println("First index = " + String(firstIndex) + ", Second Index = " + String(secondIndex));
-  //   uint16_t* python = sendRequestImage(true, firstIndex, secondIndex);
-  //   if (python == nullptr){
-  //     Serial.println("Request Error");
-  //     break;
-  //   }
-  //   for (int i = 0; i < secondIndex - firstIndex;i++){
-  //     uint16_t pixelColor = python[i];
-  //     Serial.println(pixelColor);
-  //     int currIdx = firstIndex + i;
-  //     int y = currIdx/240;
-  //     int x = currIdx%240;
-  //     tft.drawPixel(x, y, pixelColor);
-  //   }
-  //   firstIndex += 288;
-  //   secondIndex += 288;
-  //   delete[] python;
-  //   python = nullptr;
-  //   delay(50);
-  // }
-  // delay(5000); // Display for 5 seconds
+  startTime = millis();
 }
 
 String value = "";
 void loop()
 {
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    delay(500);
+    Serial.println("Connecting to WiFi...");
+  }
   if (isGetGPS){
     if (neogps.available()>0){
       if (gps.encode(neogps.read())){
@@ -180,8 +171,11 @@ void loop()
           // Serial.println(gps.location.lat(), 6);
           // Serial.print("Longitude: ");
           // Serial.println(gps.location.lng(), 6);
-          sendHTTPRequestGPS(gps.location.lat(), gps.location.lng());
-          delay(50);
+          unsigned long currentMillis = millis();
+          if (currentMillis - startTime >2000){
+            startTime = currentMillis;
+            sendHTTPRequestGPS(gps.location.lat(), gps.location.lng());
+          }
         }
       }
     }
@@ -227,10 +221,29 @@ void loop()
       http.end();
       Serial.println();
     } else{
-      sendHttpRequest(red, green, blue);
-      delay(1000);
+      int httpResp = sendHttpRequest(red, green, blue);
+      if (httpResp > 0){
+        move(0, 90);
+        delay(2000);
+        move(90, 0);
+      }
+      delay(500);
     }
     
+  }
+}
+
+void move(int pos1,int pos2){
+  if (pos2-pos1 >= 0){
+    for (int i = pos1; i <= pos2; i++){
+      myServo.write(i);
+      delay(15);
+    }
+  } else{
+    for (int i = pos1; i >= pos2; i--){
+      myServo.write(i);
+      delay(15);
+    }
   }
 }
 
@@ -260,20 +273,20 @@ int getBlue()
 
 void sendHTTPRequestGPS(double latitude, double longitude)
 {
-  HTTPClient http;
+  HTTPClient http1;
   String url = "https://infastq-api-production.up.railway.app/api/location/";
-  http.begin(url);
-  http.addHeader("Content-Type", "application/json");
+  http1.begin(url);
+  http1.addHeader("Content-Type", "application/json");
 
   String jsonString;
   DynamicJsonDocument jsonReq(50);
   jsonReq["latitude"] = latitude;
   jsonReq["longitude"] = longitude;
   serializeJson(jsonReq, jsonString);
-  int httpResponseCode = http.POST(jsonString);
+  int httpResponseCode = http1.POST(jsonString);
   if (httpResponseCode > 0)
   {
-    String response = http.getString();
+    String response = http1.getString();
     Serial.println("HTTP Response: " + response);
     // Parse the JSON response
     DynamicJsonDocument jsonResp(50);
@@ -282,10 +295,10 @@ void sendHTTPRequestGPS(double latitude, double longitude)
     // Extract the "data" value
     String latitude = jsonResp["latitude"];
     String longitude = jsonResp["longitude"];
-    Serial.print("Latitude: ");
-    Serial.println(latitude);
-    Serial.print("Longitude: ");
-    Serial.println(longitude);
+    // Serial.print("Latitude: ");
+    // Serial.println(latitude);
+    // Serial.print("Longitude: ");
+    // Serial.println(longitude);
     jsonResp.clear();
   }
   else
@@ -293,73 +306,11 @@ void sendHTTPRequestGPS(double latitude, double longitude)
     Serial.print("HTTP Error: ");
     Serial.println(httpResponseCode);
   }
-  http.end();
+  http1.end();
   jsonReq.clear();
 }
 
-// uint16_t* sendRequestImage(bool hasPython, int firstIndex, int lastIndex){
-//   HTTPClient http;
-//   String url = "https://infastq-api-production.up.railway.app/api/convert_to_rgb/" + String(firstIndex)+"-"+String(lastIndex);
-//   Serial.println("url = " + url);
-//   http.begin(url); // Change this to your server URL
-//   http.addHeader("Content-Type", "application/json");
-
-//   // DynamicJsonDocument jsonDoc(100); // Use a DynamicJsonDocument for flexibility
-//   if (hasPython){
-//     Serial.println("Using python.jpg");
-//     jsonDocument["python"] = 1;
-//   }
-
-//   // Serial.println("Checkpoint 1");
-//   String jsonString;
-//   serializeJson(jsonDocument, jsonString);
-//   // Serial.println("Checkpoint 2");
-
-//   Serial.println("JSON String = " + jsonString);
-
-//   int httpResponseCode = http.POST(jsonString);
-//   // Serial.println("Checkpoint 3");
-//   if (httpResponseCode > 0)
-//   {
-//     String response = http.getString();
-//     // Serial.println("Checkpoint 4");
-//     // Serial.println("HTTP Response: " + response);
-//     deserializeJson(jsonResponse, response);
-//     // Serial.println("Checkpoint 5");
-
-//     // Get the "data" array from the JSON response
-//     JsonArray dataArray = jsonResponse["data"].as<JsonArray>();
-//     // Serial.println("Checkpoint 6");
-
-//     // Create a dynamic uint16_t array to store the data
-//     const uint16_t size = lastIndex - firstIndex;
-//     uint16_t* arrayValue = new uint16_t[size];
-//     // Serial.println("Checkpoint 7");
-//     int i = 0;
-//     for (JsonVariant v: dataArray){
-//       arrayValue[i] = v.as<uint16_t>();
-//       i++;
-//     }
-//     // Parse the JSON elements and store them in the array
-//     // for (size_t i = 0; i < size; i++) {
-//     //   arrayValue[i] = dataArray[i].as<uint16_t>();
-//     // }
-    
-//     http.end();
-//     jsonDocument.clear();
-//     jsonResponse.clear();
-//     return arrayValue;
-//   }else {
-//     jsonDocument.clear();
-//     Serial.print("HTTP Error: ");
-//     Serial.println(httpResponseCode);
-//     http.end();
-//     Serial.println("Checkpoint 3.2");
-//     return nullptr;
-//   }
-// }
-
-void sendHttpRequest(int red, int green, int blue)
+int sendHttpRequest(int red, int green, int blue)
 {
   HTTPClient http;
   http.begin("https://infastq-api-production.up.railway.app/api/calculate/"); // Change this to your server URL
@@ -400,122 +351,8 @@ void sendHttpRequest(int red, int green, int blue)
 
   jsonDoc.clear();
   http.end();
+  return httpResponseCode;
 }
-
-// #include <Arduino.h>
-// #include <Wire.h>
-// #include <TinyGPSPlus.h>
-
-// // The TinyGPSPlus object
-
-// TinyGPSPlus gps;
-
-// void displayInfo();
-// void updateSerial();
-
-// void updateSerial()
-// {
-
-//   delay(500);
-//   while (Serial.available())
-//   {
-//     Serial2.write(Serial.read()); // Forward what Serial received to Software Serial Port
-//   }
-//   while (Serial2.available())
-//   {
-//     Serial.write(Serial2.read()); // Forward what Software Serial received to Serial Port
-//   }
-// }
-
-
-// void displayInfo()
-// {
-//   Serial.print(F("Location: "));
-
-//   if (gps.location.isValid())
-//   {
-
-//     Serial.print("Lat: ");
-
-//     Serial.print(gps.location.lat(), 6);
-
-//     Serial.print(F(","));
-
-//     Serial.print("Lng: ");
-
-//     Serial.print(gps.location.lng(), 6);
-
-//     Serial.println();
-//   }
-//   else
-//   {
-//     Serial.print(F("INVALID"));
-//   }
-// }
-
-// void setup()
-// {
-
-//   Serial.begin(9600);
-
-//   Serial2.begin(9600);
-
-//   delay(3000);
-// }
-
-// void loop()
-// {
-//   updateSerial();
-
-//   while (Serial2.available() > 0)
-//   {
-//     if (gps.encode(Serial2.read()))
-//     {
-//       displayInfo();
-//     }
-//   }
-
-//   if (millis() > 5000 && gps.charsProcessed() < 10)
-//   {
-//     Serial.println(F("No GPS detected: check wiring."));
-
-//     while (true)
-//       ;
-//   }
-// }
-
-// #include <Wire.h>
-// #include <LiquidCrystal_I2C.h>  
-// #include <TinyGPS++.h>
-// #include <SoftwareSerial.h>
-// #include <HardwareSerial.h>
-
-// #define RXD2 16
-// #define TXD2 17
-// char datoCmd = 0;
-
-// #define NMEA 0
-// #define I2C_ADDR 0x27
-// LiquidCrystal_I2C lcd(I2C_ADDR, 16, 2);
-// // SoftwareSerial ss(16,17);
-// HardwareSerial ss(1);
-// TinyGPSPlus gps;
-
-// //------------------------------------------------------------------------------------------------------------------------------------------
-
-// void setup() 
-// {
-//   Wire.begin(21, 22);
-//   Serial.begin(115200); 
-//   ss.begin(9600, SERIAL_8N1, RXD2, TXD2);
-//   lcd.begin ();                 
-//   //lcd.setBacklightPin(3,POSITIVE);  // Backlight OFF 
-//   lcd.setBacklight(HIGH);           // Backlight ON 
-//   lcd.clear();
-//   lcd.print(" MULAI");  
-//   delay(2000);
-
-// }
 
 //------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -780,35 +617,3 @@ void mediabuttons() {
   // play color
   tft.fillTriangle(42, 20, 42, 60, 90, 40, ST77XX_GREEN);
 }
-
-// void loop() 
-// {
-//   while(ss.available()>0)
-//     gps.encode(ss.read());
-//   visualisasi_GPS_lcd ();
-//   Visualisasi_GPS_Serial();
-// }
-
-//------------------------------------------------------------------------------------------------------------------------------------------
-/*
- * Rui Santos 
- * Complete Project Details https://randomnerdtutorials.com
- */
- 
-// #include <SoftwareSerial.h>
-
-// // The serial connection to the GPS module
-// SoftwareSerial ss(4, 3);
-
-// void setup(){
-//   Serial.begin(9600);
-//   ss.begin(9600);
-// }
-
-// void loop(){
-//   while (ss.available() > 0){
-//     // get the byte data from the GPS
-//     byte gpsData = ss.read();
-//     Serial.println(gpsData);
-//   }
-// }
